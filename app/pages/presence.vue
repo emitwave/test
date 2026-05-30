@@ -32,7 +32,7 @@ onMounted(async () => {
   try {
     status.value = "connecting";
     await emitwave.connect({
-      subscriberId:
+      subscriberExternalId:
         (route.query.subscriber as string) ||
         "019e330a-cd3d-70de-a6b4-cb120b0060ea",
       subscriberAccessToken: route.query.access_token as string | undefined,
