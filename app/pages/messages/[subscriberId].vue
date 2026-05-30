@@ -4,6 +4,8 @@ import type { PresenceChannel, PresenceInfo } from "@emitwave/emitwavejs";
 const emitwave = useEmitWave();
 const route = useRoute();
 const subscriberExternalId = route.params.subscriberId as string;
+const presenceName = "company.chat-room";
+const backendPresenceName = "presence-company.chat-room";
 
 const status = ref<string>("disconnected");
 const messages = ref<Array<{ data: unknown; time: string }>>([]);
@@ -49,7 +51,7 @@ onMounted(async () => {
       subscriberRefreshToken: route.query.refresh_token as string | undefined,
     });
 
-    channel = (await emitwave.presence("company.chat-room")) as PresenceChannel;
+    channel = (await emitwave.presence(presenceName)) as PresenceChannel;
 
     channel.on("message", (data) => {
       messages.value.push({
@@ -60,7 +62,7 @@ onMounted(async () => {
     });
 
     channel.on("subscribe", () => {
-      console.log("[EmitWave] Subscribed to company.chat-room");
+      console.log(`[EmitWave] Subscribed to ${presenceName}`);
     });
 
     channel.on("error", (err) => {
@@ -153,7 +155,7 @@ const statusColor = computed(() => {
         }"
       />
       <span style="font-size: 0.85rem; opacity: 0.7;">{{ status }}</span>
-      <span style="margin-left: auto; font-size: 0.85rem; opacity: 0.7;">{{ subscriberExternalId }} | company.chat-room</span>
+      <span style="margin-left: auto; font-size: 0.85rem; opacity: 0.7;">{{ subscriberExternalId }} | {{ presenceName }} → {{ backendPresenceName }}</span>
     </div>
 
     <!-- Main Content -->

@@ -27,6 +27,8 @@ emitwave.on("error", (err) => {
 });
 
 const route = useRoute();
+const presenceName = "user.019e3c1d-8e8c-708c-9f1f-fdc35035bc59";
+const backendPresenceName = "presence-company.test-room";
 
 onMounted(async () => {
   try {
@@ -34,14 +36,12 @@ onMounted(async () => {
     await emitwave.connect({
       subscriberExternalId:
         (route.query.subscriber as string) ||
-        "019e330a-cd3d-70de-a6b4-cb120b0060ea",
+        "019e3c1d-8e8c-708c-9f1f-fdc35035bc59",
       subscriberAccessToken: route.query.access_token as string | undefined,
       subscriberRefreshToken: route.query.refresh_token as string | undefined,
     });
 
-    channel = (await emitwave.presence(
-      "company.test-room",
-    )) as PresenceChannel;
+    channel = (await emitwave.presence(presenceName)) as PresenceChannel;
 
     channel.on("join", async (info: PresenceInfo) => {
       activityLog.value.unshift({
@@ -84,6 +84,11 @@ onUnmounted(() => {
     "
   >
     <h1>Presence Channel Test</h1>
+
+    <p style="color: #555; margin-top: -0.5rem">
+      SDK channel: <code>{{ presenceName }}</code> · Backend channel:
+      <code>{{ backendPresenceName }}</code>
+    </p>
 
     <div style="margin-bottom: 1rem">
       <strong>Status:</strong>
