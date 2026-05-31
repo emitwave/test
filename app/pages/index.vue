@@ -4,7 +4,7 @@ import type { Channel } from "@emitwave/emitwavejs";
 const emitwave = useEmitWave();
 
 const status = ref<string>("disconnected");
-const subscriberExternalId = "019e3c1d-8e8c-708c-9f1f-fdc35035bc59";
+const subscriberExternalId = "sub_33PzseupokdqzIiAo2tAS";
 const channelName = ref(`user.${subscriberExternalId}`);
 const publishChannelName = computed(() => `private-${channelName.value}`);
 const messages = ref<Array<{ event: string; data: unknown; time: string }>>([]);
@@ -34,9 +34,9 @@ emitwave.on("error", (err) => {
 onMounted(async () => {
   try {
     status.value = "connecting";
-    await emitwave.connect({ subscriberExternalId });
+    await emitwave.connect(await getSubscriberConnectOptions(subscriberExternalId));
 
-    channel = (await emitwave.encryptedPrivate(channelName.value)) as Channel;
+    channel = (await emitwave.private(channelName.value)) as Channel;
 
     channel.on("message", (data) => {
       messages.value.unshift({

@@ -33,13 +33,10 @@ const backendPresenceName = "presence-company.test-room";
 onMounted(async () => {
   try {
     status.value = "connecting";
-    await emitwave.connect({
-      subscriberExternalId:
-        (route.query.subscriber as string) ||
-        "019e3c1d-8e8c-708c-9f1f-fdc35035bc59",
-      subscriberAccessToken: route.query.access_token as string | undefined,
-      subscriberRefreshToken: route.query.refresh_token as string | undefined,
-    });
+    const subscriberExternalId =
+      (route.query.subscriber as string) ||
+      "019e3c1d-8e8c-708c-9f1f-fdc35035bc59";
+    await emitwave.connect(await getSubscriberConnectOptions(subscriberExternalId));
 
     channel = (await emitwave.presence(presenceName)) as PresenceChannel;
 

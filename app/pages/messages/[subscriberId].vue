@@ -45,11 +45,7 @@ emitwave.on("error", (err) => {
 onMounted(async () => {
   try {
     status.value = "connecting";
-    await emitwave.connect({
-      subscriberExternalId,
-      subscriberAccessToken: route.query.access_token as string | undefined,
-      subscriberRefreshToken: route.query.refresh_token as string | undefined,
-    });
+    await emitwave.connect(await getSubscriberConnectOptions(subscriberExternalId));
 
     channel = (await emitwave.presence(presenceName)) as PresenceChannel;
 
