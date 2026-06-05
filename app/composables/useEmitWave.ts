@@ -51,7 +51,8 @@ export async function loginEmitWaveSubscriber(subscriberExternalId: string) {
   const emitwave = useEmitWave();
   const tokens = await getSubscriberLoginTokens(subscriberExternalId);
 
-  await emitwave.login(subscriberExternalId, tokens);
+  emitwave.setSubscriberTokens(tokens);
+  emitwave.push.setExternalId(subscriberExternalId);
 
   return {
     subscriberExternalId,

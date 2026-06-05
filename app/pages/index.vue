@@ -19,6 +19,27 @@ const expandedMessage = ref<{
 let channel: Channel | null = null;
 let subscriberConnectOptions: ConnectOptions | null = null;
 
+interface BrowserPushConfigResponse {
+  data: {
+    vapidKey?: string;
+    vapid_key?: string;
+    serviceWorkerPath?: string;
+    service_worker_path?: string;
+    serviceWorkerScope?: string;
+    service_worker_scope?: string;
+    site: {
+      id: string;
+    };
+  };
+}
+
+interface PushSubscriptionResponse {
+  data: {
+    subscriptionId?: string;
+    subscription_id?: string;
+  };
+}
+
 async function ensureSubscriberLogin() {
   if (isSubscriberLoggedIn.value && subscriberConnectOptions) {
     return subscriberConnectOptions;
@@ -69,13 +90,6 @@ onMounted(async () => {
     });
 
     const connectOptions = await ensureSubscriberLogin();
-    try {
-      await emitwave.init();
-    } catch (err) {
-      console.error("[EmitWave] Push config failed:", err);
-      pushStatus.value = "config error";
-      pushError.value = err instanceof Error ? err.message : String(err);
-    }
     await emitwave.connect(connectOptions);
 
     channel = (await emitwave.private(channelName.value)) as Channel;
@@ -128,10 +142,20 @@ async function enableNotifications() {
 
     await ensureSubscriberLogin();
 
+    pushStatus.value = "loading push config";
+    const pushConfig = await getBrowserPushConfig();
+    const vapidKey = pushConfig.vapidKey || pushConfig.vapid_key;
+    if (!vapidKey) {
+      throw new Error("Browser push config is missing vapidKey.");
+    }
+
     pushStatus.value = "registering service worker";
-    const registration = await navigator.serviceWorker.register("/emitwave-sw.js", {
-      scope: "/",
-    });
+    const registration = await navigator.serviceWorker.register(
+      pushConfig.serviceWorkerPath || pushConfig.service_worker_path || "/emitwave-sw.js",
+      {
+        scope: pushConfig.serviceWorkerScope || pushConfig.service_worker_scope || "/",
+      },
+    );
     await navigator.serviceWorker.ready;
 
     pushStatus.value = "requesting permission";
@@ -140,17 +164,132 @@ async function enableNotifications() {
       throw new Error(`Notification permission is ${permission}.`);
     }
 
+    pushStatus.value = "creating browser subscription";
+    const browserSubscription = await getOrCreatePushSubscription(
+      registration,
+      vapidKey,
+    );
+
     pushStatus.value = "creating EmitWave subscription";
-    const subscription = await emitwave.push.register({
-      serviceWorkerRegistration: registration,
-      requestPermission: false,
-    });
-    pushStatus.value = `enabled (${subscription.subscriptionId})`;
+    const subscription = await registerEmitWavePushSubscription(
+      pushConfig.site.id,
+      browserSubscription,
+    );
+    pushStatus.value = `enabled (${subscription.subscriptionId || subscription.subscription_id})`;
   } catch (err) {
     console.error("[EmitWave] Push registration failed:", err);
     pushStatus.value = emitwave.push.getPermissionStatus();
     pushError.value = err instanceof Error ? err.message : String(err);
   }
+}
+
+async function getBrowserPushConfig() {
+  const config = useRuntimeConfig();
+  const apiUrl = String(config.public.emitwaveApiUrl).replace(/\/$/, "");
+  const publicKey = String(config.public.emitwavePublicKey);
+
+  const response = await $fetch<BrowserPushConfigResponse>(
+    `${apiUrl}/v1/push/browser/config`,
+    {
+      headers: {
+        Authorization: `Bearer ${publicKey}`,
+      },
+    },
+  );
+
+  return response.data;
+}
+
+async function getOrCreatePushSubscription(
+  registration: ServiceWorkerRegistration,
+  vapidKey: string,
+) {
+  const existing = await registration.pushManager.getSubscription();
+  if (existing) {
+    return existing;
+  }
+
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer,
+  });
+}
+
+async function registerEmitWavePushSubscription(
+  siteId: string,
+  subscription: PushSubscription,
+) {
+  const config = useRuntimeConfig();
+  const apiUrl = String(config.public.emitwaveApiUrl).replace(/\/$/, "");
+  const publicKey = String(config.public.emitwavePublicKey);
+  const keys = subscription.toJSON().keys;
+  if (!keys?.p256dh || !keys.auth) {
+    throw new Error("Browser PushSubscription is missing keys.");
+  }
+
+  const response = await $fetch<PushSubscriptionResponse>(
+    `${apiUrl}/v1/push/subscriptions`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${publicKey}`,
+      },
+      body: {
+        externalId: subscriberExternalId,
+        siteId,
+        subscription: {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: keys.p256dh,
+            auth: keys.auth,
+          },
+        },
+        permissionStatus: Notification.permission,
+        enabled: true,
+        device: deviceMetadata(),
+      },
+    },
+  );
+
+  return response.data;
+}
+
+function deviceMetadata() {
+  return {
+    deviceId: getDeviceId(),
+    browser: navigator.userAgent,
+    browserVersion: "",
+    os: navigator.platform || "",
+    osVersion: "",
+    language: navigator.language || "",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    userAgent: navigator.userAgent,
+  };
+}
+
+function getDeviceId() {
+  const key = "emitwave.push.device_id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id =
+      globalThis.crypto?.randomUUID?.() ||
+      `web_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const output = new Uint8Array(raw.length);
+
+  for (let i = 0; i < raw.length; i += 1) {
+    output[i] = raw.charCodeAt(i);
+  }
+
+  return output;
 }
 
 onUnmounted(() => {
