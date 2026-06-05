@@ -12,6 +12,7 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("push", (event) => {
+  console.log("[emitwave.sw] push event received");
   event.waitUntil(handleEmitWavePush(event));
 });
 
@@ -27,7 +28,15 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 async function handleEmitWavePush(event) {
-  const payload = await readEmitWavePushPayload(event.data);
+  let payload;
+  try {
+    payload = await readEmitWavePushPayload(event.data);
+    console.log("[emitwave.sw] push payload parsed", payload);
+  } catch (error) {
+    console.error("[emitwave.sw] push payload parse failed", error);
+    payload = {};
+  }
+
   await trackEmitWavePushEvent(payload, "push.opened");
 
   const title = payload.title || "Notification";
@@ -42,7 +51,22 @@ async function handleEmitWavePush(event) {
     data: payload,
   };
 
-  await self.registration.showNotification(title, options);
+  try {
+    await self.registration.showNotification(title, options);
+    const notifications = await self.registration.getNotifications();
+    console.log("[emitwave.sw] notification displayed", {
+      title,
+      notification_count: notifications.length,
+      permission: Notification.permission,
+    });
+  } catch (error) {
+    console.error("[emitwave.sw] showNotification failed", {
+      title,
+      permission: Notification.permission,
+      error,
+    });
+    throw error;
+  }
 }
 
 async function readEmitWavePushPayload(data) {
@@ -83,11 +107,17 @@ async function trackEmitWavePushEvent(payload, eventName) {
     !payload.subscription_id ||
     !EMITWAVE_PUBLIC_KEY
   ) {
+    console.log("[emitwave.sw] tracking skipped", {
+      event: eventName,
+      has_message_id: Boolean(payload && payload.message_id),
+      has_subscription_id: Boolean(payload && payload.subscription_id),
+      has_public_key: Boolean(EMITWAVE_PUBLIC_KEY),
+    });
     return;
   }
 
   try {
-    await fetch(EMITWAVE_API_BASE_URL + "/v1/push/events", {
+    const response = await fetch(EMITWAVE_API_BASE_URL + "/v1/push/events", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -99,7 +129,16 @@ async function trackEmitWavePushEvent(payload, eventName) {
         subscription_id: payload.subscription_id,
       }),
     });
-  } catch (_) {}
+    console.log("[emitwave.sw] tracking sent", {
+      event: eventName,
+      status: response.status,
+    });
+  } catch (_) {
+    console.error("[emitwave.sw] tracking failed", {
+      event: eventName,
+      error: _,
+    });
+  }
 }
 
 async function openEmitWavePushTarget(clickURL) {
