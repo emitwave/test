@@ -10,6 +10,12 @@ const publishChannelName = computed(() => `private-${channelName.value}`);
 const messages = ref<Array<{ event: string; data: unknown; time: string }>>([]);
 const pushStatus = ref<string>("not initialized");
 const pushError = ref<string>("");
+const pushDiagnostics = ref({
+  permissionStatus: "unknown",
+  serviceWorkerScript: "unknown",
+  hasBrowserSubscription: false,
+  visibleNotificationCount: 0,
+});
 const isSubscriberLoggedIn = ref(false);
 const expandedMessage = ref<{
   event: string;
@@ -18,6 +24,12 @@ const expandedMessage = ref<{
 } | null>(null);
 let channel: Channel | null = null;
 let subscriberConnectOptions: ConnectOptions | null = null;
+let serviceWorkerMessageHandler: ((event: MessageEvent) => void) | null = null;
+
+interface EmitWaveServiceWorkerMessage {
+  type?: string;
+  payload?: unknown;
+}
 
 interface BrowserPushConfigResponse {
   data: {
@@ -53,6 +65,56 @@ async function ensureSubscriberLogin() {
   return connectOptions;
 }
 
+function recordMessage(event: string, data: unknown) {
+  messages.value.unshift({
+    event,
+    data,
+    time: new Date().toLocaleTimeString(),
+  });
+}
+
+async function refreshPushDiagnostics(registration?: ServiceWorkerRegistration) {
+  pushDiagnostics.value.permissionStatus =
+    "Notification" in window ? Notification.permission : "unsupported";
+
+  if (!("serviceWorker" in navigator)) {
+    pushDiagnostics.value.serviceWorkerScript = "unsupported";
+    pushDiagnostics.value.hasBrowserSubscription = false;
+    pushDiagnostics.value.visibleNotificationCount = 0;
+    return;
+  }
+
+  const activeRegistration = registration || (await navigator.serviceWorker.ready);
+  const subscription = await activeRegistration.pushManager.getSubscription();
+  const notifications = await activeRegistration.getNotifications();
+
+  pushDiagnostics.value.serviceWorkerScript =
+    activeRegistration.active?.scriptURL ||
+    activeRegistration.installing?.scriptURL ||
+    activeRegistration.waiting?.scriptURL ||
+    "unknown";
+  pushDiagnostics.value.hasBrowserSubscription = Boolean(subscription);
+  pushDiagnostics.value.visibleNotificationCount = notifications.length;
+}
+
+function handleServiceWorkerMessage(event: MessageEvent) {
+  const data = event.data as EmitWaveServiceWorkerMessage;
+  if (!data?.type?.startsWith("emitwave.push.")) {
+    return;
+  }
+
+  if (data.type === "emitwave.push.displayed") {
+    const payload = data.payload as { notification_count?: number };
+    pushDiagnostics.value.visibleNotificationCount =
+      payload.notification_count ?? pushDiagnostics.value.visibleNotificationCount;
+    recordMessage("push.displayed", data.payload);
+  }
+
+  if (data.type === "emitwave.push.display_failed") {
+    recordMessage("push.display_failed", data.payload);
+  }
+}
+
 emitwave.on("connected", () => {
   status.value = "connected";
 });
@@ -73,20 +135,18 @@ onMounted(async () => {
   try {
     status.value = "connecting";
     pushStatus.value = emitwave.push.getPermissionStatus();
+    pushDiagnostics.value.permissionStatus = pushStatus.value;
+
+    if ("serviceWorker" in navigator) {
+      serviceWorkerMessageHandler = handleServiceWorkerMessage;
+      navigator.serviceWorker.addEventListener("message", serviceWorkerMessageHandler);
+    }
 
     emitwave.push.onNotificationReceived((payload) => {
-      messages.value.unshift({
-        event: "push.received",
-        data: payload,
-        time: new Date().toLocaleTimeString(),
-      });
+      recordMessage("push.received", payload);
     });
     emitwave.push.onNotificationOpened((payload) => {
-      messages.value.unshift({
-        event: "push.opened",
-        data: payload,
-        time: new Date().toLocaleTimeString(),
-      });
+      recordMessage("push.opened", payload);
     });
 
     const connectOptions = await ensureSubscriberLogin();
@@ -95,27 +155,15 @@ onMounted(async () => {
     channel = (await emitwave.private(channelName.value)) as Channel;
 
     channel.on("message", (data) => {
-      messages.value.unshift({
-        event: "raw",
-        data,
-        time: new Date().toLocaleTimeString(),
-      });
+      recordMessage("raw", data);
     });
 
     channel.listen("notification.created", (data) => {
-      messages.value.unshift({
-        event: "notification.created",
-        data,
-        time: new Date().toLocaleTimeString(),
-      });
+      recordMessage("notification.created", data);
     });
 
     channel.listen("test.event", (data) => {
-      messages.value.unshift({
-        event: "test.event",
-        data,
-        time: new Date().toLocaleTimeString(),
-      });
+      recordMessage("test.event", data);
     });
   } catch (err) {
     console.error("[EmitWave] Connection failed:", err);
@@ -157,6 +205,7 @@ async function enableNotifications() {
       },
     );
     await navigator.serviceWorker.ready;
+    await refreshPushDiagnostics(registration);
 
     pushStatus.value = "requesting permission";
     const permission = await Notification.requestPermission();
@@ -176,6 +225,7 @@ async function enableNotifications() {
       browserSubscription,
     );
     pushStatus.value = `enabled (${subscription.subscriptionId || subscription.subscription_id})`;
+    await refreshPushDiagnostics(registration);
   } catch (err) {
     console.error("[EmitWave] Push registration failed:", err);
     pushStatus.value = emitwave.push.getPermissionStatus();
@@ -237,6 +287,8 @@ async function registerEmitWavePushSubscription(
       body: {
         externalId: subscriberExternalId,
         siteId,
+        platform: "web",
+        provider: "web_push",
         subscription: {
           endpoint: subscription.endpoint,
           keys: {
@@ -250,6 +302,11 @@ async function registerEmitWavePushSubscription(
       },
     },
   );
+
+  const subscriptionId = response.data.subscriptionId || response.data.subscription_id;
+  if (subscriptionId) {
+    localStorage.setItem("emitwave.push.subscription_id", subscriptionId);
+  }
 
   return response.data;
 }
@@ -293,6 +350,9 @@ function urlBase64ToUint8Array(value: string) {
 }
 
 onUnmounted(() => {
+  if (serviceWorkerMessageHandler && "serviceWorker" in navigator) {
+    navigator.serviceWorker.removeEventListener("message", serviceWorkerMessageHandler);
+  }
   channel?.unsubscribe();
   emitwave.disconnect();
 });
@@ -366,6 +426,32 @@ const expandedPayload = computed(() =>
       </div>
       <div v-if="pushError" style="margin-top: 0.5rem; color: #b91c1c">
         {{ pushError }}
+      </div>
+      <div
+        style="
+          margin-top: 0.75rem;
+          display: grid;
+          gap: 0.35rem;
+          font-size: 0.85rem;
+          color: #475569;
+        "
+      >
+        <div>
+          <strong>Permission:</strong>
+          <span>{{ pushDiagnostics.permissionStatus }}</span>
+        </div>
+        <div>
+          <strong>Service worker:</strong>
+          <code style="word-break: break-all">{{ pushDiagnostics.serviceWorkerScript }}</code>
+        </div>
+        <div>
+          <strong>Browser subscription:</strong>
+          <span>{{ pushDiagnostics.hasBrowserSubscription ? "present" : "missing" }}</span>
+        </div>
+        <div>
+          <strong>Visible notifications:</strong>
+          <span>{{ pushDiagnostics.visibleNotificationCount }}</span>
+        </div>
       </div>
     </div>
 

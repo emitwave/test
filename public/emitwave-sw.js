@@ -7,12 +7,37 @@ self.addEventListener("notificationclick", (event) => { event.notification.close
 
 async function handlePush(event) {
   const payload = event.data ? event.data.json() : {};
-  await self.registration.showNotification(payload.title || "Notification", {
-    body: payload.body || "", icon: payload.icon, badge: payload.badge, image: payload.image,
-    actions: payload.actions, tag: payload.tag, renotify: payload.renotify,
-    requireInteraction: payload.require_interaction, data: payload,
-  });
+  try {
+    await self.registration.showNotification(payload.title || "Notification", notificationOptions(payload));
+    const notifications = await self.registration.getNotifications();
+    await notifyPages("emitwave.push.displayed", {
+      ...payload,
+      notification_count: notifications.length,
+    });
+  } catch (error) {
+    await notifyPages("emitwave.push.display_failed", {
+      ...payload,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   await notifyPages("emitwave.push.received", payload);
+}
+
+function notificationOptions(payload) {
+  const options = {
+    body: payload.body || "",
+    data: payload,
+  };
+
+  if (payload.icon) options.icon = payload.icon;
+  if (payload.badge) options.badge = payload.badge;
+  if (payload.image) options.image = payload.image;
+  if (Array.isArray(payload.actions) && payload.actions.length) options.actions = payload.actions;
+  if (payload.tag) options.tag = payload.tag;
+  if (payload.renotify !== undefined) options.renotify = Boolean(payload.renotify);
+  if (payload.require_interaction !== undefined) options.requireInteraction = Boolean(payload.require_interaction);
+
+  return options;
 }
 async function handleClick(event) {
   const payload = event.notification.data || {};
