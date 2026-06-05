@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Channel } from "@emitwave/emitwavejs";
+import type { Channel, ConnectOptions } from "@emitwave/emitwavejs";
 
 const emitwave = useEmitWave();
 
@@ -10,12 +10,27 @@ const publishChannelName = computed(() => `private-${channelName.value}`);
 const messages = ref<Array<{ event: string; data: unknown; time: string }>>([]);
 const pushStatus = ref<string>("not initialized");
 const pushError = ref<string>("");
+const isSubscriberLoggedIn = ref(false);
 const expandedMessage = ref<{
   event: string;
   data: unknown;
   time: string;
 } | null>(null);
 let channel: Channel | null = null;
+let subscriberConnectOptions: ConnectOptions | null = null;
+
+async function ensureSubscriberLogin() {
+  if (isSubscriberLoggedIn.value && subscriberConnectOptions) {
+    return subscriberConnectOptions;
+  }
+
+  pushStatus.value = "logging in subscriber";
+  const connectOptions = await loginEmitWaveSubscriber(subscriberExternalId);
+  subscriberConnectOptions = connectOptions;
+  isSubscriberLoggedIn.value = true;
+
+  return connectOptions;
+}
 
 emitwave.on("connected", () => {
   status.value = "connected";
@@ -53,7 +68,7 @@ onMounted(async () => {
       });
     });
 
-    const connectOptions = await loginEmitWaveSubscriber(subscriberExternalId);
+    const connectOptions = await ensureSubscriberLogin();
     try {
       await emitwave.init();
     } catch (err) {
@@ -91,6 +106,8 @@ onMounted(async () => {
   } catch (err) {
     console.error("[EmitWave] Connection failed:", err);
     status.value = "error";
+    pushStatus.value = "login required";
+    pushError.value = err instanceof Error ? err.message : String(err);
   }
 });
 
@@ -108,6 +125,8 @@ async function enableNotifications() {
     if (!("PushManager" in window)) {
       throw new Error("This browser does not support Web Push.");
     }
+
+    await ensureSubscriberLogin();
 
     pushStatus.value = "registering service worker";
     const registration = await navigator.serviceWorker.register("/emitwave-sw.js", {
