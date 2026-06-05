@@ -31,7 +31,9 @@ function recordMessage(event: string, data: unknown) {
   });
 }
 
-async function refreshPushDiagnostics(registration?: ServiceWorkerRegistration) {
+async function refreshPushDiagnostics(
+  registration?: ServiceWorkerRegistration,
+) {
   const diagnostics = await emitwave.push.getDiagnostics(registration);
   pushDiagnostics.value = diagnostics;
 }
@@ -45,7 +47,8 @@ function handleServiceWorkerMessage(event: MessageEvent) {
   if (data.type === "emitwave.push.displayed") {
     const payload = data.payload as { notification_count?: number };
     pushDiagnostics.value.visibleNotificationCount =
-      payload.notification_count ?? pushDiagnostics.value.visibleNotificationCount;
+      payload.notification_count ??
+      pushDiagnostics.value.visibleNotificationCount;
     recordMessage("push.displayed", data.payload);
   }
 
@@ -61,7 +64,10 @@ onMounted(async () => {
 
     if ("serviceWorker" in navigator) {
       serviceWorkerMessageHandler = handleServiceWorkerMessage;
-      navigator.serviceWorker.addEventListener("message", serviceWorkerMessageHandler);
+      navigator.serviceWorker.addEventListener(
+        "message",
+        serviceWorkerMessageHandler,
+      );
       await refreshPushDiagnostics();
     }
 
@@ -107,7 +113,10 @@ async function enableNotifications() {
 
 onUnmounted(() => {
   if (serviceWorkerMessageHandler && "serviceWorker" in navigator) {
-    navigator.serviceWorker.removeEventListener("message", serviceWorkerMessageHandler);
+    navigator.serviceWorker.removeEventListener(
+      "message",
+      serviceWorkerMessageHandler,
+    );
   }
 });
 
@@ -144,7 +153,14 @@ const expandedPayload = computed(() =>
         border-radius: 4px;
       "
     >
-      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap">
+      <div
+        style="
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        "
+      >
         <strong>Push:</strong>
         <span>{{ pushStatus }}</span>
         <button
@@ -181,11 +197,15 @@ const expandedPayload = computed(() =>
         </div>
         <div>
           <strong>Service worker:</strong>
-          <code style="word-break: break-all">{{ pushDiagnostics.serviceWorkerScript }}</code>
+          <code style="word-break: break-all">{{
+            pushDiagnostics.serviceWorkerScript
+          }}</code>
         </div>
         <div>
           <strong>Browser subscription:</strong>
-          <span>{{ pushDiagnostics.hasBrowserSubscription ? "present" : "missing" }}</span>
+          <span>{{
+            pushDiagnostics.hasBrowserSubscription ? "present" : "missing"
+          }}</span>
         </div>
         <div>
           <strong>Visible notifications:</strong>
