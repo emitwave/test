@@ -14,7 +14,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       laravelUrl:
-        process.env.NUXT_PUBLIC_LARAVEL_URL || "http://localhost:8007",
+        process.env.NUXT_PUBLIC_LARAVEL_URL || "http://localhost:8080",
       emitwaveApiUrl:
         process.env.NUXT_PUBLIC_EMITWAVE_API_URL || "http://localhost:8080",
       emitwaveRealtimeUrl:
