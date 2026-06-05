@@ -8,6 +8,8 @@ const subscriberExternalId = "sub_33PzseupokdqzIiAo2tAS";
 const channelName = ref(`user.${subscriberExternalId}`);
 const publishChannelName = computed(() => `private-${channelName.value}`);
 const messages = ref<Array<{ event: string; data: unknown; time: string }>>([]);
+const pushStatus = ref<string>("not initialized");
+const pushError = ref<string>("");
 const expandedMessage = ref<{
   event: string;
   data: unknown;
@@ -34,7 +36,32 @@ emitwave.on("error", (err) => {
 onMounted(async () => {
   try {
     status.value = "connecting";
-    await emitwave.connect(await getSubscriberConnectOptions(subscriberExternalId));
+    pushStatus.value = emitwave.push.getPermissionStatus();
+
+    emitwave.push.onNotificationReceived((payload) => {
+      messages.value.unshift({
+        event: "push.received",
+        data: payload,
+        time: new Date().toLocaleTimeString(),
+      });
+    });
+    emitwave.push.onNotificationOpened((payload) => {
+      messages.value.unshift({
+        event: "push.opened",
+        data: payload,
+        time: new Date().toLocaleTimeString(),
+      });
+    });
+
+    const connectOptions = await loginEmitWaveSubscriber(subscriberExternalId);
+    try {
+      await emitwave.init();
+    } catch (err) {
+      console.error("[EmitWave] Push config failed:", err);
+      pushStatus.value = "config error";
+      pushError.value = err instanceof Error ? err.message : String(err);
+    }
+    await emitwave.connect(connectOptions);
 
     channel = (await emitwave.private(channelName.value)) as Channel;
 
@@ -66,6 +93,46 @@ onMounted(async () => {
     status.value = "error";
   }
 });
+
+async function enableNotifications() {
+  try {
+    pushError.value = "";
+    pushStatus.value = "clicked";
+
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("This browser does not support service workers.");
+    }
+    if (!("Notification" in window)) {
+      throw new Error("This browser does not support notifications.");
+    }
+    if (!("PushManager" in window)) {
+      throw new Error("This browser does not support Web Push.");
+    }
+
+    pushStatus.value = "registering service worker";
+    const registration = await navigator.serviceWorker.register("/emitwave-sw.js", {
+      scope: "/",
+    });
+    await navigator.serviceWorker.ready;
+
+    pushStatus.value = "requesting permission";
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      throw new Error(`Notification permission is ${permission}.`);
+    }
+
+    pushStatus.value = "creating EmitWave subscription";
+    const subscription = await emitwave.push.register({
+      serviceWorkerRegistration: registration,
+      requestPermission: false,
+    });
+    pushStatus.value = `enabled (${subscription.subscriptionId})`;
+  } catch (err) {
+    console.error("[EmitWave] Push registration failed:", err);
+    pushStatus.value = emitwave.push.getPermissionStatus();
+    pushError.value = err instanceof Error ? err.message : String(err);
+  }
+}
 
 onUnmounted(() => {
   channel?.unsubscribe();
@@ -109,6 +176,39 @@ const expandedPayload = computed(() =>
     <div style="margin-bottom: 1rem">
       <strong>SDK channel:</strong>
       <code>{{ channelName }}</code>
+    </div>
+
+    <div
+      style="
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap">
+        <strong>Push:</strong>
+        <span>{{ pushStatus }}</span>
+        <button
+          type="button"
+          style="
+            border: 1px solid #0f172a;
+            background: #0f172a;
+            color: #fff;
+            border-radius: 4px;
+            padding: 0.45rem 0.7rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+          "
+          @click="enableNotifications"
+        >
+          Enable notifications
+        </button>
+      </div>
+      <div v-if="pushError" style="margin-top: 0.5rem; color: #b91c1c">
+        {{ pushError }}
+      </div>
     </div>
 
     <div style="margin-bottom: 1rem">

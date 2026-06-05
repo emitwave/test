@@ -5,15 +5,20 @@ interface LaravelSubscriberTokenResponse {
   refresh_token: string;
 }
 
+interface SubscriberLoginTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
 let instance: EmitWave | null = null;
 export function useEmitWave() {
   if (!instance) {
+    const config = useRuntimeConfig();
     instance = new EmitWave({
-      appId: "ws_33GmR7001GaWM0suD4ZSV",
-      publicKey:
-        "ew_pk_0c3170978e3ae95d0bd6856d4b628a07c203fad6fd599e756021110828687fd7",
-      apiUrl: "http://localhost:8080",
-      realtimeUrl: "ws://localhost:8000/connection/websocket",
+      appId: String(config.public.emitwaveAppId),
+      publicKey: String(config.public.emitwavePublicKey),
+      apiUrl: String(config.public.emitwaveApiUrl),
+      realtimeUrl: String(config.public.emitwaveRealtimeUrl),
       debug: true,
     });
   }
@@ -21,7 +26,9 @@ export function useEmitWave() {
   return instance;
 }
 
-export async function getSubscriberConnectOptions(subscriberExternalId: string) {
+export async function getSubscriberLoginTokens(
+  subscriberExternalId: string,
+): Promise<SubscriberLoginTokens> {
   const config = useRuntimeConfig();
   const baseUrl = String(config.public.laravelUrl).replace(/\/$/, "");
   const token = await $fetch<LaravelSubscriberTokenResponse>(
@@ -35,8 +42,24 @@ export async function getSubscriberConnectOptions(subscriberExternalId: string) 
   );
 
   return {
-    subscriberExternalId,
-    subscriberAccessToken: token.access_token,
-    subscriberRefreshToken: token.refresh_token,
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token,
   };
+}
+
+export async function loginEmitWaveSubscriber(subscriberExternalId: string) {
+  const emitwave = useEmitWave();
+  const tokens = await getSubscriberLoginTokens(subscriberExternalId);
+
+  await emitwave.login(subscriberExternalId, tokens);
+
+  return {
+    subscriberExternalId,
+    subscriberAccessToken: tokens.accessToken,
+    subscriberRefreshToken: tokens.refreshToken,
+  };
+}
+
+export async function getSubscriberConnectOptions(subscriberExternalId: string) {
+  return loginEmitWaveSubscriber(subscriberExternalId);
 }
