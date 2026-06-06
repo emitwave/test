@@ -1,7 +1,8 @@
 <script setup lang="ts">
 const emitwave = useEmitWave();
 
-const subscriberExternalId = "sub_33PzseupokdqzIiAo2tAS";
+// sub_33PzseupokdqzIiAo2tAS
+const subscriberExternalId = "";
 const pushStatus = ref<string>("not initialized");
 const pushError = ref<string>("");
 const pushDiagnostics = ref({
