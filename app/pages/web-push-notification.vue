@@ -3,6 +3,7 @@ const emitwave = useEmitWave();
 
 // sub_33PzseupokdqzIiAo2tAS
 const subscriberExternalId = "";
+const subscriberLabel = computed(() => subscriberExternalId.trim() || "anonymous");
 const pushStatus = ref<string>("not initialized");
 const pushError = ref<string>("");
 const pushDiagnostics = ref({
@@ -98,8 +99,13 @@ async function enableNotifications() {
       throw new Error("This browser does not support Web Push.");
     }
 
-    pushStatus.value = "logging in subscriber";
-    // await loginEmitWaveSubscriber(subscriberExternalId);
+    const externalId = subscriberExternalId.trim();
+    if (externalId) {
+      pushStatus.value = "logging in subscriber";
+      await loginEmitWaveSubscriber(externalId);
+    } else {
+      pushStatus.value = "using anonymous push";
+    }
 
     pushStatus.value = "registering push";
     const subscription = await emitwave.push.register();
@@ -142,7 +148,7 @@ const expandedPayload = computed(() =>
 
     <p style="color: #475569; margin-top: -0.5rem">
       Subscriber:
-      <code>{{ subscriberExternalId }}</code>
+      <code>{{ subscriberLabel }}</code>
     </p>
 
     <div
