@@ -99,7 +99,7 @@ async function enableNotifications() {
     }
 
     pushStatus.value = "logging in subscriber";
-    await loginEmitWaveSubscriber(subscriberExternalId);
+    // await loginEmitWaveSubscriber(subscriberExternalId);
 
     pushStatus.value = "registering push";
     const subscription = await emitwave.push.register();
